@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Search, SlidersHorizontal, TrendingUp, Upload, X } from 'lucide-react'
 import { loadPositions, loadWatchlist, loadLastUpdated, clearAll } from '@/lib/storage'
 import { buildUnifiedList, calcPortfolioSummary, cn } from '@/lib/utils'
@@ -31,8 +31,6 @@ export default function Dashboard({ onReset }: Props) {
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<SortKey>('value')
   const [showSortMenu, setShowSortMenu] = useState(false)
-  const sortRef = useRef<HTMLDivElement>(null)
-
   const load = useCallback(() => {
     const positions = loadPositions()
     const watchlist = loadWatchlist()
@@ -79,16 +77,6 @@ export default function Dashboard({ onReset }: Props) {
     fetchSparklines(unified)
   }, [load, fetchQuotes, fetchSparklines])
 
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (sortRef.current && !sortRef.current.contains(e.target as Node)) {
-        setShowSortMenu(false)
-      }
-    }
-    if (showSortMenu) document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [showSortMenu])
-
   const handleRefresh = async () => {
     setRefreshing(true)
     await fetchQuotes(stocks)
@@ -100,34 +88,46 @@ export default function Dashboard({ onReset }: Props) {
     onReset()
   }
 
-  const filtered = stocks
-    .filter(s => {
-      if (filter === 'holdings') return s.status === 'holding'
-      if (filter === 'watchlist') return s.status === 'watching'
-      return true
-    })
-    .filter(s => {
-      if (!search) return true
-      const q = search.toLowerCase()
-      return s.symbol.toLowerCase().includes(q) || s.description.toLowerCase().includes(q)
-    })
-    .sort((a, b) => {
-      const qa = quotes[a.symbol]
-      const qb = quotes[b.symbol]
-      switch (sort) {
-        case 'symbol': return a.symbol.localeCompare(b.symbol)
-        case 'price': return (qb?.price ?? b.lastPrice) - (qa?.price ?? a.lastPrice)
-        case 'change': return (qb?.changePercent ?? b.changePercent) - (qa?.changePercent ?? a.changePercent)
-        case 'value': {
-          const va = a.currentValue ?? 0
-          const vb = b.currentValue ?? 0
-          if (va !== vb) return vb - va
-          return (qb?.price ?? b.lastPrice) - (qa?.price ?? a.lastPrice)
+  const filtered = useMemo(() => {
+    // null-safe helper: API can return null (not just undefined) for missing fields
+    const num = (v: number | null | undefined, fallback: number) =>
+      v != null ? v : fallback
+
+    return stocks
+      .filter(s => {
+        if (filter === 'holdings') return s.status === 'holding'
+        if (filter === 'watchlist') return s.status === 'watching'
+        return true
+      })
+      .filter(s => {
+        if (!search) return true
+        const q = search.toLowerCase()
+        return s.symbol.toLowerCase().includes(q) || s.description.toLowerCase().includes(q)
+      })
+      .slice()
+      .sort((a, b) => {
+        const qa = quotes[a.symbol] as QuoteData | null | undefined
+        const qb = quotes[b.symbol] as QuoteData | null | undefined
+        switch (sort) {
+          case 'symbol':
+            return a.symbol.localeCompare(b.symbol)
+          case 'price':
+            return num(qb?.price, b.lastPrice) - num(qa?.price, a.lastPrice)
+          case 'change':
+            return num(qb?.changePercent, b.changePercent) - num(qa?.changePercent, a.changePercent)
+          case 'value': {
+            const va = a.currentValue ?? 0
+            const vb = b.currentValue ?? 0
+            if (vb !== va) return vb - va
+            return num(qb?.price, b.lastPrice) - num(qa?.price, a.lastPrice)
+          }
+          case 'totalGain':
+            return (b.totalGainPercent ?? 0) - (a.totalGainPercent ?? 0)
+          default:
+            return 0
         }
-        case 'totalGain': return (b.totalGainPercent ?? 0) - (a.totalGainPercent ?? 0)
-        default: return 0
-      }
-    })
+      })
+  }, [stocks, quotes, filter, search, sort])
 
   const selectedStock = selectedSymbol ? stocks.find(s => s.symbol === selectedSymbol) ?? null : null
 
@@ -193,7 +193,7 @@ export default function Dashboard({ onReset }: Props) {
         </div>
 
         {/* Sort */}
-        <div className="relative" ref={sortRef}>
+        <div className="relative">
           <button
             onClick={() => setShowSortMenu(prev => !prev)}
             className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-200 px-3 py-1.5 bg-surface-2 border border-surface-4 rounded-lg transition-colors"

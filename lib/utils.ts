@@ -41,7 +41,7 @@ export function gainBg(n: number): string {
 }
 
 export function buildUnifiedList(positions: Position[], watchlist: WatchlistItem[]): UnifiedStock[] {
-  const holdingSymbols = new Set(positions.map(p => p.symbol))
+  const holdingSymbols = new Set(positions.map(p => p.symbol.trim().toUpperCase()))
 
   const holdings: UnifiedStock[] = positions.map(p => ({
     symbol: p.symbol,
@@ -62,7 +62,7 @@ export function buildUnifiedList(positions: Position[], watchlist: WatchlistItem
   }))
 
   const watches: UnifiedStock[] = watchlist
-    .filter(w => !holdingSymbols.has(w.symbol))
+    .filter(w => !holdingSymbols.has(w.symbol.trim().toUpperCase()))
     .map(w => ({
       symbol: w.symbol,
       description: w.description,

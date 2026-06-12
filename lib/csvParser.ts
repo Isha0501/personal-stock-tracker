@@ -15,6 +15,14 @@ function findColumn(row: Record<string, string>, candidates: string[]): string |
   return undefined
 }
 
+// Valid tickers: 1-10 chars, letters/digits/dots/dollar signs only, no spaces
+// Filters out Fidelity's disclaimer paragraphs, "Total" rows, blank rows, etc.
+function isValidTicker(sym: string): boolean {
+  if (!sym || sym.length === 0 || sym.length > 10) return false
+  if (sym.includes(' ')) return false
+  return /^[A-Z0-9.$^-]+$/i.test(sym)
+}
+
 export function parsePositionsCSV(content: string): Position[] {
   // Fidelity positions CSVs have metadata rows at top and bottom — find the header row
   const lines = content.split('\n')
@@ -33,11 +41,11 @@ export function parsePositionsCSV(content: string): Position[] {
 
   return result.data
     .filter(row => {
-      const sym = findColumn(row, ['Symbol'])
-      return sym && sym.length > 0 && sym !== 'Symbol' && !sym.startsWith('--')
+      const sym = (findColumn(row, ['Symbol']) ?? '').trim().toUpperCase()
+      return isValidTicker(sym)
     })
     .map(row => ({
-      symbol: (findColumn(row, ['Symbol']) ?? '').toUpperCase(),
+      symbol: (findColumn(row, ['Symbol']) ?? '').trim().toUpperCase(),
       description: findColumn(row, ['Description', 'Name']) ?? '',
       quantity: cleanNumber(findColumn(row, ['Quantity', 'Shares'])),
       lastPrice: cleanNumber(findColumn(row, ['Last Price'])),
@@ -69,11 +77,11 @@ export function parseWatchlistCSV(content: string): WatchlistItem[] {
 
   return result.data
     .filter(row => {
-      const sym = findColumn(row, ['Symbol'])
-      return sym && sym.length > 0 && sym !== 'Symbol' && !sym.startsWith('--')
+      const sym = (findColumn(row, ['Symbol']) ?? '').trim().toUpperCase()
+      return isValidTicker(sym)
     })
     .map(row => ({
-      symbol: (findColumn(row, ['Symbol']) ?? '').toUpperCase(),
+      symbol: (findColumn(row, ['Symbol']) ?? '').trim().toUpperCase(),
       description: findColumn(row, ['Description', 'Company', 'Name', 'Security Name']) ?? '',
       lastPrice: cleanNumber(findColumn(row, ['Last Price', 'Price'])),
       changeDollar: cleanNumber(findColumn(row, ['Change $', 'Change Dollar', 'Change', 'Chg $'])),
