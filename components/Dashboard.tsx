@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { Search, SlidersHorizontal, TrendingUp, Upload, X } from 'lucide-react'
 import { loadPositions, loadWatchlist, loadLastUpdated, clearAll } from '@/lib/storage'
 import { buildUnifiedList, calcPortfolioSummary, cn } from '@/lib/utils'
@@ -31,6 +31,7 @@ export default function Dashboard({ onReset }: Props) {
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<SortKey>('value')
   const [showSortMenu, setShowSortMenu] = useState(false)
+  const sortRef = useRef<HTMLDivElement>(null)
 
   const load = useCallback(() => {
     const positions = loadPositions()
@@ -77,6 +78,16 @@ export default function Dashboard({ onReset }: Props) {
     fetchQuotes(unified)
     fetchSparklines(unified)
   }, [load, fetchQuotes, fetchSparklines])
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (sortRef.current && !sortRef.current.contains(e.target as Node)) {
+        setShowSortMenu(false)
+      }
+    }
+    if (showSortMenu) document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showSortMenu])
 
   const handleRefresh = async () => {
     setRefreshing(true)
@@ -182,16 +193,16 @@ export default function Dashboard({ onReset }: Props) {
         </div>
 
         {/* Sort */}
-        <div className="relative">
+        <div className="relative" ref={sortRef}>
           <button
-            onClick={() => setShowSortMenu(!showSortMenu)}
+            onClick={() => setShowSortMenu(prev => !prev)}
             className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-200 px-3 py-1.5 bg-surface-2 border border-surface-4 rounded-lg transition-colors"
           >
             <SlidersHorizontal size={12} />
-            Sort: {sort}
+            Sort: {sort === 'totalGain' ? 'total gain' : sort}
           </button>
           {showSortMenu && (
-            <div className="absolute top-full mt-1 right-0 bg-surface-2 border border-surface-4 rounded-lg py-1 z-20 shadow-xl min-w-[140px]">
+            <div className="absolute top-full mt-1 right-0 bg-surface-2 border border-surface-4 rounded-lg py-1 z-50 shadow-xl min-w-[140px]">
               {(['symbol', 'price', 'change', 'value', 'totalGain'] as SortKey[]).map(s => (
                 <button
                   key={s}
