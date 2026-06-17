@@ -94,11 +94,15 @@ export default function DetailPanel({ stock, quote, onClose }: Props) {
         {/* Holding stats */}
         {stock.status === 'holding' && (
           <div className="px-5 py-4 border-b border-surface-3">
-            <h3 className="text-xs text-zinc-500 uppercase tracking-wider mb-3">Your Position</h3>
+            <h3 className="text-xs text-zinc-500 uppercase tracking-wider mb-3">
+              {stock.portfolioPositions.length > 1
+                ? `Your Position — ${stock.portfolioPositions.length} Accounts (Combined)`
+                : 'Your Position'}
+            </h3>
             <div className="grid grid-cols-2 gap-3">
-              <Stat label="Shares" value={stock.quantity?.toLocaleString() ?? '—'} />
-              <Stat label="Avg Cost" value={fmt$$(stock.avgCostBasis ?? 0)} />
-              <Stat label="Cost Basis" value={fmt$$(stock.costBasisTotal ?? 0)} />
+              <Stat label="Total Shares" value={stock.quantity?.toLocaleString() ?? '—'} />
+              <Stat label="Blended Avg Cost" value={fmt$$(stock.avgCostBasis ?? 0)} />
+              <Stat label="Total Cost Basis" value={fmt$$(stock.costBasisTotal ?? 0)} />
               <Stat label="Market Value" value={fmt$$(stock.currentValue ?? 0)} />
               <Stat
                 label="Total Return"
@@ -117,7 +121,7 @@ export default function DetailPanel({ stock, quote, onClose }: Props) {
             {stock.percentOfAccount !== undefined && (
               <div className="mt-4">
                 <div className="flex justify-between text-xs text-zinc-500 mb-1.5">
-                  <span>Portfolio weight</span>
+                  <span>Overall portfolio weight</span>
                   <span className="text-zinc-300 font-medium">{stock.percentOfAccount.toFixed(2)}%</span>
                 </div>
                 <div className="h-2 bg-surface-4 rounded-full overflow-hidden">
@@ -125,6 +129,42 @@ export default function DetailPanel({ stock, quote, onClose }: Props) {
                     className="h-full bg-accent-blue/70 rounded-full"
                     style={{ width: `${Math.min(stock.percentOfAccount, 100)}%` }}
                   />
+                </div>
+              </div>
+            )}
+
+            {/* Per-portfolio breakdown — only shown when holding in multiple accounts */}
+            {stock.portfolioPositions.length > 1 && (
+              <div className="mt-5">
+                <h4 className="text-xs text-zinc-500 uppercase tracking-wider mb-2">By Account</h4>
+                <div className="rounded-lg border border-surface-3 overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-surface-2 text-zinc-500">
+                        <th className="text-left px-3 py-2 font-medium">Account</th>
+                        <th className="text-right px-3 py-2 font-medium">Shares</th>
+                        <th className="text-right px-3 py-2 font-medium">Value</th>
+                        <th className="text-right px-3 py-2 font-medium">Avg Cost</th>
+                        <th className="text-right px-3 py-2 font-medium">Total P&L</th>
+                        <th className="text-right px-3 py-2 font-medium">Wt%</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {stock.portfolioPositions.map((pp, i) => (
+                        <tr key={pp.portfolioId} className={i % 2 === 0 ? 'bg-surface-1' : 'bg-surface-2'}>
+                          <td className="px-3 py-2 font-medium text-zinc-200 truncate max-w-[90px]">{pp.portfolioName}</td>
+                          <td className="px-3 py-2 text-right font-mono text-zinc-300">{pp.quantity.toLocaleString()}</td>
+                          <td className="px-3 py-2 text-right font-mono text-zinc-300">{fmt$$(pp.currentValue)}</td>
+                          <td className="px-3 py-2 text-right font-mono text-zinc-400">{fmt$$(pp.avgCostBasis)}</td>
+                          <td className={`px-3 py-2 text-right font-mono ${gainColor(pp.totalGainDollar)}`}>
+                            {fmt$$(pp.totalGainDollar)}
+                            <span className="block text-zinc-500">{fmtPct(pp.totalGainPercent)}</span>
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono text-zinc-400">{pp.percentOfPortfolio.toFixed(1)}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             )}

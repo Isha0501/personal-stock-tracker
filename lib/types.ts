@@ -15,6 +15,25 @@ export interface Position {
   type: string
 }
 
+export interface Portfolio {
+  id: string
+  name: string
+  positions: Position[]
+}
+
+export interface PortfolioPosition {
+  portfolioId: string
+  portfolioName: string
+  quantity: number
+  currentValue: number
+  costBasisTotal: number
+  avgCostBasis: number
+  totalGainDollar: number
+  totalGainPercent: number
+  todayGainDollar: number
+  percentOfPortfolio: number
+}
+
 export interface WatchlistItem {
   symbol: string
   description: string
@@ -37,7 +56,8 @@ export interface UnifiedStock {
   lastPrice: number
   changePercent: number
   changeDollar: number
-  // holding-only
+  portfolioPositions: PortfolioPosition[]
+  // holding aggregates
   quantity?: number
   currentValue?: number
   totalGainDollar?: number

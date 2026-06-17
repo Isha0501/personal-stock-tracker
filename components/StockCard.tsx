@@ -134,8 +134,8 @@ export default function StockCard({ stock, quote, history, selected, onClick }: 
         </div>
       )}
 
-      {/* Status label */}
-      <div className="flex-shrink-0 ml-auto">
+      {/* Status + multi-account badge */}
+      <div className="flex-shrink-0 ml-auto flex flex-col items-end gap-1">
         <span className={cn(
           'text-xs px-2 py-0.5 rounded-full font-medium',
           stock.status === 'holding'
@@ -144,6 +144,11 @@ export default function StockCard({ stock, quote, history, selected, onClick }: 
         )}>
           {stock.status === 'holding' ? 'HOLDING' : 'WATCHING'}
         </span>
+        {stock.portfolioPositions.length > 1 && (
+          <span className="text-xs px-1.5 py-0.5 rounded-full bg-accent-purple/15 text-accent-purple font-medium">
+            {stock.portfolioPositions.length} accounts
+          </span>
+        )}
       </div>
     </div>
   )
