@@ -1,10 +1,10 @@
 'use client'
 
 import { useCallback, useState } from 'react'
-import { Upload, CheckCircle, AlertCircle, TrendingUp, Plus, X } from 'lucide-react'
-import { parsePositionsCSV, parseWatchlistCSV } from '@/lib/csvParser'
-import { savePortfolios, saveWatchlist } from '@/lib/storage'
-import type { Position, Portfolio } from '@/lib/types'
+import { Upload, CheckCircle, AlertCircle, TrendingUp, ChevronRight } from 'lucide-react'
+import { parsePortfoliosCSV, parseWatchlistCSV, parseAccountHistoryCSV } from '@/lib/csvParser'
+import { savePortfolios, saveWatchlist, saveTransactions } from '@/lib/storage'
+import type { Portfolio } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
 interface Props {
@@ -13,49 +13,40 @@ interface Props {
 
 type SlotState = 'idle' | 'loaded' | 'error'
 
-interface PortfolioSlot {
-  id: string
-  name: string
-  state: SlotState
-  fileName: string
-  count: number
-  error?: string
-  positions: Position[]
-}
-
-interface WatchlistSlot {
+interface UploadSlot {
   state: SlotState
   fileName: string
   count: number
   error?: string
 }
 
-function makeSlot(id: string, name: string): PortfolioSlot {
-  return { id, name, state: 'idle', fileName: '', count: 0, positions: [] }
+function emptySlot(): UploadSlot {
+  return { state: 'idle', fileName: '', count: 0 }
 }
 
 export default function UploadScreen({ onComplete }: Props) {
-  const [portfolioSlots, setPortfolioSlots] = useState<PortfolioSlot[]>([
-    makeSlot('p1', 'Portfolio 1'),
-  ])
-  const [watchlistSlot, setWatchlistSlot] = useState<WatchlistSlot>({
-    state: 'idle', fileName: '', count: 0,
-  })
+  const [positionsSlot, setPositionsSlot] = useState<UploadSlot>(emptySlot())
+  const [detectedPortfolios, setDetectedPortfolios] = useState<Portfolio[]>([])
+  const [portfolioNames, setPortfolioNames] = useState<Record<string, string>>({})
 
-  const updateSlot = (id: string, update: Partial<PortfolioSlot>) => {
-    setPortfolioSlots(prev => prev.map(s => s.id === id ? { ...s, ...update } : s))
-  }
+  const [watchlistSlot, setWatchlistSlot] = useState<UploadSlot>(emptySlot())
+  const [historySlot, setHistorySlot] = useState<UploadSlot>(emptySlot())
 
-  const handlePortfolioFile = useCallback((file: File, slotId: string) => {
+  const handlePositionsFile = useCallback((file: File) => {
     const reader = new FileReader()
     reader.onload = e => {
       const content = e.target?.result as string
       try {
-        const parsed = parsePositionsCSV(content)
-        if (parsed.length === 0) throw new Error('No positions found — check CSV format')
-        updateSlot(slotId, { state: 'loaded', fileName: file.name, count: parsed.length, positions: parsed, error: undefined })
+        const portfolios = parsePortfoliosCSV(content)
+        if (portfolios.length === 0) throw new Error('No accounts detected — check CSV format')
+        const totalPositions = portfolios.reduce((s, p) => s + p.positions.length, 0)
+        setDetectedPortfolios(portfolios)
+        const names: Record<string, string> = {}
+        portfolios.forEach(p => { names[p.id] = p.name })
+        setPortfolioNames(names)
+        setPositionsSlot({ state: 'loaded', fileName: file.name, count: totalPositions })
       } catch (err) {
-        updateSlot(slotId, { state: 'error', fileName: file.name, count: 0, positions: [], error: String(err) })
+        setPositionsSlot({ state: 'error', fileName: file.name, count: 0, error: String(err) })
       }
     }
     reader.readAsText(file)
@@ -77,167 +68,147 @@ export default function UploadScreen({ onComplete }: Props) {
     reader.readAsText(file)
   }, [])
 
-  const addPortfolio = () => {
-    const id = `p${Date.now()}`
-    setPortfolioSlots(prev => [...prev, makeSlot(id, `Portfolio ${prev.length + 1}`)])
-  }
-
-  const removePortfolio = (id: string) => {
-    setPortfolioSlots(prev => prev.filter(s => s.id !== id))
-  }
+  const handleHistoryFile = useCallback((file: File) => {
+    const reader = new FileReader()
+    reader.onload = e => {
+      const content = e.target?.result as string
+      try {
+        const txs = parseAccountHistoryCSV(content)
+        if (txs.length === 0) throw new Error('No transactions found — check CSV format')
+        saveTransactions(txs)
+        setHistorySlot({ state: 'loaded', fileName: file.name, count: txs.length })
+      } catch (err) {
+        setHistorySlot({ state: 'error', fileName: file.name, count: 0, error: String(err) })
+      }
+    }
+    reader.readAsText(file)
+  }, [])
 
   const handleContinue = () => {
-    const portfolios: Portfolio[] = portfolioSlots
-      .filter(s => s.state === 'loaded')
-      .map(s => ({ id: s.id, name: s.name.trim() || `Portfolio`, positions: s.positions }))
-    if (portfolios.length > 0) savePortfolios(portfolios)
+    if (detectedPortfolios.length > 0) {
+      const renamed = detectedPortfolios.map(p => ({
+        ...p,
+        name: (portfolioNames[p.id] ?? p.name).trim() || p.name,
+      }))
+      savePortfolios(renamed)
+    }
     onComplete()
   }
 
-  const hasAnyLoaded = portfolioSlots.some(s => s.state === 'loaded') || watchlistSlot.state === 'loaded'
+  const canContinue = positionsSlot.state === 'loaded' || watchlistSlot.state === 'loaded'
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-6 py-12">
-      <div className="w-full max-w-2xl">
+      <div className="w-full max-w-xl">
         <div className="flex items-center gap-3 mb-2">
           <TrendingUp className="text-accent-blue" size={28} />
           <h1 className="text-2xl font-semibold tracking-tight">Portfolio Tracker</h1>
         </div>
         <p className="text-zinc-400 mb-8 text-sm">
-          Upload CSVs from Fidelity. Add one portfolio per account — name them anything you like.
-          Your data stays in your browser, nothing is sent to any server.
+          Upload your Fidelity CSV exports. Multiple accounts are auto-detected from a single positions file.
+          Everything stays in your browser — nothing is sent anywhere.
         </p>
 
-        {/* Portfolio slots */}
-        <div className="mb-3">
-          <p className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-3">Portfolios</p>
-          <div className="space-y-3">
-            {portfolioSlots.map(slot => (
-              <PortfolioRow
-                key={slot.id}
-                slot={slot}
-                canRemove={portfolioSlots.length > 1}
-                onNameChange={name => updateSlot(slot.id, { name })}
-                onFile={f => handlePortfolioFile(f, slot.id)}
-                onRemove={() => removePortfolio(slot.id)}
-              />
-            ))}
+        {/* Step 1: Positions */}
+        <div className="mb-6">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="w-5 h-5 rounded-full bg-accent-blue text-white text-xs flex items-center justify-center font-bold flex-shrink-0">1</span>
+            <p className="text-sm font-medium text-zinc-300">Portfolio Positions</p>
+            <span className="text-xs text-zinc-600 ml-1">required</span>
           </div>
+          <DropZone
+            description="Accounts & Trade → Portfolio → Download (CSV)"
+            slot={positionsSlot}
+            onFile={handlePositionsFile}
+          />
 
-          <button
-            onClick={addPortfolio}
-            className="mt-3 flex items-center gap-1.5 text-xs text-accent-blue hover:text-blue-400 transition-colors px-3 py-2 rounded-lg border border-dashed border-accent-blue/30 hover:border-accent-blue/60 w-full justify-center"
-          >
-            <Plus size={12} />
-            Add Another Portfolio
-          </button>
+          {/* Account name editor */}
+          {detectedPortfolios.length > 0 && (
+            <div className="mt-3 bg-surface-1 border border-surface-3 rounded-xl p-4">
+              <p className="text-xs text-zinc-500 mb-3">
+                {detectedPortfolios.length} account{detectedPortfolios.length > 1 ? 's' : ''} detected — rename if you like:
+              </p>
+              <div className="space-y-2">
+                {detectedPortfolios.map(p => (
+                  <div key={p.id} className="flex items-center gap-3">
+                    <span className="text-xs text-zinc-600 font-mono w-24 flex-shrink-0">{p.accountNumber}</span>
+                    <input
+                      value={portfolioNames[p.id] ?? p.name}
+                      onChange={e => setPortfolioNames(prev => ({ ...prev, [p.id]: e.target.value }))}
+                      className="flex-1 bg-surface-2 border border-surface-4 rounded-lg px-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-accent-blue/50"
+                    />
+                    <span className="text-xs text-zinc-600">{p.positions.length} positions · ${p.cashBalance.toFixed(2)} cash</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Watchlist */}
-        <div className="mb-6 mt-6">
-          <p className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-3">Watchlist</p>
-          <WatchlistRow slot={watchlistSlot} onFile={handleWatchlistFile} />
+        {/* Step 2: Watchlist */}
+        <div className="mb-6">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="w-5 h-5 rounded-full bg-surface-3 text-zinc-400 text-xs flex items-center justify-center font-bold flex-shrink-0">2</span>
+            <p className="text-sm font-medium text-zinc-300">Watchlist</p>
+            <span className="text-xs text-zinc-600 ml-1">optional</span>
+          </div>
+          <DropZone
+            description="News & Research → Watchlists → Export (gear icon)"
+            slot={watchlistSlot}
+            onFile={handleWatchlistFile}
+          />
         </div>
 
-        <div className="text-xs text-zinc-600 mb-6 space-y-1">
-          <p className="text-zinc-500">How to export from Fidelity:</p>
-          <p>Positions — Portfolio page → &quot;Download&quot; button (top right) → CSV</p>
-          <p>Watchlist — Watchlist page → gear icon → &quot;Export Watchlist&quot;</p>
+        {/* Step 3: History */}
+        <div className="mb-8">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="w-5 h-5 rounded-full bg-surface-3 text-zinc-400 text-xs flex items-center justify-center font-bold flex-shrink-0">3</span>
+            <p className="text-sm font-medium text-zinc-300">Account History</p>
+            <span className="text-xs text-zinc-600 ml-1">optional · enables transaction tracking</span>
+          </div>
+          <DropZone
+            description="Accounts & Trade → History → Download (select all accounts)"
+            slot={historySlot}
+            onFile={handleHistoryFile}
+          />
         </div>
 
         <button
           onClick={handleContinue}
-          disabled={!hasAnyLoaded}
+          disabled={!canContinue}
           className={cn(
-            'w-full py-3 rounded-lg font-medium text-sm transition-all',
-            hasAnyLoaded
+            'w-full py-3 rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-2',
+            canContinue
               ? 'bg-accent-blue text-white hover:opacity-90'
               : 'bg-surface-3 text-zinc-600 cursor-not-allowed'
           )}
         >
-          {hasAnyLoaded ? 'Open Dashboard' : 'Upload at least one file to continue'}
+          {canContinue ? (
+            <><span>Open Dashboard</span><ChevronRight size={16} /></>
+          ) : (
+            'Upload at least one file to continue'
+          )}
         </button>
       </div>
     </div>
   )
 }
 
-function PortfolioRow({
-  slot, canRemove, onNameChange, onFile, onRemove,
+function DropZone({
+  description, slot, onFile,
 }: {
-  slot: PortfolioSlot
-  canRemove: boolean
-  onNameChange: (n: string) => void
+  description: string
+  slot: UploadSlot
   onFile: (f: File) => void
-  onRemove: () => void
 }) {
-  const [dragging, setDragging] = useState(false)
-
-  return (
-    <div className="flex items-center gap-3 bg-surface-1 border border-surface-3 rounded-xl p-3">
-      {/* Name input */}
-      <input
-        value={slot.name}
-        onChange={e => onNameChange(e.target.value)}
-        placeholder="Portfolio name"
-        className="w-36 flex-shrink-0 bg-surface-2 border border-surface-4 rounded-lg px-3 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-accent-blue/50"
-      />
-
-      {/* Drop zone */}
-      <label
-        className={cn(
-          'flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 border-dashed cursor-pointer transition-all text-xs',
-          dragging ? 'border-accent-blue bg-accent-blue/5' : 'border-surface-4 hover:border-zinc-600',
-          slot.state === 'loaded' && 'border-gain/40 bg-gain/5',
-          slot.state === 'error' && 'border-loss/40 bg-loss/5'
-        )}
-        onDrop={e => { e.preventDefault(); setDragging(false); if (e.dataTransfer.files[0]) onFile(e.dataTransfer.files[0]) }}
-        onDragOver={e => { e.preventDefault(); setDragging(true) }}
-        onDragLeave={() => setDragging(false)}
-      >
-        <input type="file" accept=".csv" className="sr-only"
-          onChange={e => { if (e.target.files?.[0]) onFile(e.target.files[0]) }} />
-
-        {slot.state === 'idle' && (
-          <>
-            <Upload size={14} className="text-zinc-500 flex-shrink-0" />
-            <span className="text-zinc-500">Drag CSV or click to browse</span>
-          </>
-        )}
-        {slot.state === 'loaded' && (
-          <>
-            <CheckCircle size={14} className="text-gain flex-shrink-0" />
-            <span className="text-gain">{slot.count} positions</span>
-            <span className="text-zinc-600 truncate max-w-[120px]">— {slot.fileName}</span>
-            <span className="text-zinc-600 ml-auto">click to replace</span>
-          </>
-        )}
-        {slot.state === 'error' && (
-          <>
-            <AlertCircle size={14} className="text-loss flex-shrink-0" />
-            <span className="text-loss truncate">{slot.error}</span>
-          </>
-        )}
-      </label>
-
-      {/* Remove button */}
-      {canRemove && (
-        <button onClick={onRemove} className="text-zinc-600 hover:text-zinc-400 transition-colors flex-shrink-0">
-          <X size={14} />
-        </button>
-      )}
-    </div>
-  )
-}
-
-function WatchlistRow({ slot, onFile }: { slot: WatchlistSlot; onFile: (f: File) => void }) {
   const [dragging, setDragging] = useState(false)
 
   return (
     <label
       className={cn(
-        'flex items-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed cursor-pointer transition-all text-xs',
-        dragging ? 'border-accent-blue bg-accent-blue/5' : 'border-surface-4 bg-surface-1 hover:border-zinc-600',
+        'flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-dashed cursor-pointer transition-all',
+        dragging && 'border-accent-blue bg-accent-blue/5',
+        !dragging && slot.state === 'idle' && 'border-surface-4 bg-surface-1 hover:border-zinc-600',
         slot.state === 'loaded' && 'border-gain/40 bg-gain/5',
         slot.state === 'error' && 'border-loss/40 bg-loss/5'
       )}
@@ -250,23 +221,29 @@ function WatchlistRow({ slot, onFile }: { slot: WatchlistSlot; onFile: (f: File)
 
       {slot.state === 'idle' && (
         <>
-          <Upload size={14} className="text-zinc-500" />
-          <span className="text-zinc-500">Watchlist CSV — drag or click to browse</span>
-          <span className="text-zinc-600 ml-auto">optional</span>
+          <Upload size={16} className="text-zinc-500 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs text-zinc-400">{description}</p>
+          </div>
+          <p className="text-xs text-zinc-600 flex-shrink-0">drag or click</p>
         </>
       )}
       {slot.state === 'loaded' && (
         <>
-          <CheckCircle size={14} className="text-gain" />
-          <span className="text-gain">{slot.count} stocks</span>
-          <span className="text-zinc-600 truncate max-w-[200px]">— {slot.fileName}</span>
-          <span className="text-zinc-600 ml-auto">click to replace</span>
+          <CheckCircle size={16} className="text-gain flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs text-gain font-medium">{slot.count} records loaded</p>
+            <p className="text-xs text-zinc-600 truncate">{slot.fileName}</p>
+          </div>
+          <p className="text-xs text-zinc-600 flex-shrink-0">click to replace</p>
         </>
       )}
       {slot.state === 'error' && (
         <>
-          <AlertCircle size={14} className="text-loss" />
-          <span className="text-loss">{slot.error}</span>
+          <AlertCircle size={16} className="text-loss flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs text-loss">{slot.error}</p>
+          </div>
         </>
       )}
     </label>

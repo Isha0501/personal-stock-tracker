@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
-import type { Portfolio, WatchlistItem, UnifiedStock, PortfolioPosition, PortfolioSummary } from './types'
+import type { Portfolio, WatchlistItem, UnifiedStock, PortfolioPosition, PortfolioSummary, Transaction } from './types'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -35,23 +35,22 @@ export function gainColor(n: number): string {
 }
 
 export function buildUnifiedList(portfolios: Portfolio[], watchlist: WatchlistItem[]): UnifiedStock[] {
-  // Aggregate positions by symbol across all portfolios
-  const holdingMap = new Map<string, { desc: string; perPortfolio: (PortfolioPosition & { lastPrice: number; lastPriceChange: number })[] }>()
+  const holdingMap = new Map<string, {
+    desc: string
+    perPortfolio: (PortfolioPosition & { lastPrice: number; lastPriceChange: number })[]
+  }>()
 
-  // Pre-compute each portfolio's total value for percentOfPortfolio
   const portfolioTotals = new Map<string, number>()
   for (const p of portfolios) {
-    portfolioTotals.set(p.id, p.positions.reduce((s, pos) => s + pos.currentValue, 0))
+    const invested = p.positions.reduce((s, pos) => s + pos.currentValue, 0)
+    portfolioTotals.set(p.id, invested + p.cashBalance)
   }
-
-  const allPositionsValue = Array.from(portfolioTotals.values()).reduce((s, v) => s + v, 0)
+  const allValue = Array.from(portfolioTotals.values()).reduce((s, v) => s + v, 0)
 
   for (const portfolio of portfolios) {
     for (const pos of portfolio.positions) {
       const sym = pos.symbol.trim().toUpperCase()
-      if (!holdingMap.has(sym)) {
-        holdingMap.set(sym, { desc: pos.description, perPortfolio: [] })
-      }
+      if (!holdingMap.has(sym)) holdingMap.set(sym, { desc: pos.description, perPortfolio: [] })
       const portfolioTotal = portfolioTotals.get(portfolio.id) ?? 0
       holdingMap.get(sym)!.perPortfolio.push({
         portfolioId: portfolio.id,
@@ -71,7 +70,6 @@ export function buildUnifiedList(portfolios: Portfolio[], watchlist: WatchlistIt
   }
 
   const holdings: UnifiedStock[] = []
-
   for (const entry of Array.from(holdingMap.entries())) {
     const [symbol, { desc, perPortfolio }] = entry
     const totalQuantity = perPortfolio.reduce((s: number, p: typeof perPortfolio[0]) => s + p.quantity, 0)
@@ -83,10 +81,7 @@ export function buildUnifiedList(portfolios: Portfolio[], watchlist: WatchlistIt
     const prevValue = totalValue - todayGainDollar
     const todayGainPercent = prevValue > 0 ? (todayGainDollar / prevValue) * 100 : 0
     const avgCostBasis = totalQuantity > 0 ? totalCost / totalQuantity : 0
-    const lastPrice = perPortfolio[0].lastPrice
-    const lastPriceChange = perPortfolio[0].lastPriceChange
 
-    // Strip internal fields not in PortfolioPosition
     const portfolioPositions: PortfolioPosition[] = perPortfolio.map(pp => ({
       portfolioId: pp.portfolioId,
       portfolioName: pp.portfolioName,
@@ -104,9 +99,9 @@ export function buildUnifiedList(portfolios: Portfolio[], watchlist: WatchlistIt
       symbol,
       description: desc,
       status: 'holding',
-      lastPrice,
+      lastPrice: perPortfolio[0].lastPrice,
       changePercent: todayGainPercent,
-      changeDollar: lastPriceChange,
+      changeDollar: perPortfolio[0].lastPriceChange,
       portfolioPositions,
       quantity: totalQuantity,
       currentValue: totalValue,
@@ -114,18 +109,17 @@ export function buildUnifiedList(portfolios: Portfolio[], watchlist: WatchlistIt
       totalGainPercent,
       todayGainDollar,
       todayGainPercent,
-      percentOfAccount: allPositionsValue > 0 ? (totalValue / allPositionsValue) * 100 : 0,
+      percentOfAccount: allValue > 0 ? (totalValue / allValue) * 100 : 0,
       costBasisTotal: totalCost,
       avgCostBasis,
     })
   }
 
   const holdingSymbols = new Set(holdings.map(h => h.symbol))
-
   const watches: UnifiedStock[] = watchlist
     .filter(w => !holdingSymbols.has(w.symbol.trim().toUpperCase()))
     .map(w => ({
-      symbol: w.symbol.trim().toUpperCase(),
+      symbol: w.symbol,
       description: w.description,
       status: 'watching',
       lastPrice: w.lastPrice,
@@ -143,21 +137,20 @@ export function buildUnifiedList(portfolios: Portfolio[], watchlist: WatchlistIt
 
 export function calcPortfolioSummary(portfolios: Portfolio[]): PortfolioSummary {
   const allPositions = portfolios.flatMap(p => p.positions)
-
-  // Unique symbols for position count
   const uniqueSymbols = new Set(allPositions.map(p => p.symbol))
-
-  const totalValue = allPositions.reduce((s, p) => s + p.currentValue, 0)
+  const totalCashBalance = portfolios.reduce((s, p) => s + p.cashBalance, 0)
+  const totalValue = allPositions.reduce((s, p) => s + p.currentValue, 0) + totalCashBalance
   const totalCost = allPositions.reduce((s, p) => s + p.costBasisTotal, 0)
   const totalGainDollar = allPositions.reduce((s, p) => s + p.totalGainDollar, 0)
   const totalGainPercent = totalCost > 0 ? (totalGainDollar / totalCost) * 100 : 0
   const todayGainDollar = allPositions.reduce((s, p) => s + p.todayGainDollar, 0)
-  const prevValue = totalValue - todayGainDollar
+  const prevValue = (totalValue - totalCashBalance) - todayGainDollar
   const todayGainPercent = prevValue > 0 ? (todayGainDollar / prevValue) * 100 : 0
 
   return {
     totalValue,
     totalCost,
+    totalCashBalance,
     totalGainDollar,
     totalGainPercent,
     todayGainDollar,
@@ -165,4 +158,35 @@ export function calcPortfolioSummary(portfolios: Portfolio[]): PortfolioSummary 
     positionCount: uniqueSymbols.size,
     watchCount: 0,
   }
+}
+
+// Compute realized P&L for a symbol in a given account using average cost method
+export function calcRealizedPnL(transactions: Transaction[], symbol: string, accountNumber?: string): number {
+  const txs = transactions
+    .filter(t => t.symbol === symbol && (!accountNumber || t.accountNumber === accountNumber))
+    .filter(t => t.type === 'BUY' || t.type === 'SELL' || t.type === 'REINVESTMENT')
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+
+  let totalShares = 0
+  let totalCost = 0
+  let realizedPnL = 0
+
+  for (const tx of txs) {
+    if (tx.type === 'BUY' || tx.type === 'REINVESTMENT') {
+      const qty = Math.abs(tx.quantity)
+      const cost = Math.abs(tx.amount)
+      totalShares += qty
+      totalCost += cost
+    } else if (tx.type === 'SELL') {
+      const qty = Math.abs(tx.quantity)
+      const proceeds = Math.abs(tx.amount)
+      const avgCost = totalShares > 0 ? totalCost / totalShares : 0
+      const costOfSold = qty * avgCost
+      realizedPnL += proceeds - costOfSold
+      totalShares = Math.max(0, totalShares - qty)
+      totalCost = totalShares * avgCost
+    }
+  }
+
+  return realizedPnL
 }

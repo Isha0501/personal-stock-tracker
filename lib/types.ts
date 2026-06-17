@@ -18,6 +18,8 @@ export interface Position {
 export interface Portfolio {
   id: string
   name: string
+  accountNumber: string
+  cashBalance: number
   positions: Position[]
 }
 
@@ -45,6 +47,29 @@ export interface WatchlistItem {
   weekLow52?: number
   peRatio?: number
   divYield?: number
+}
+
+export type TransactionType =
+  | 'BUY'
+  | 'SELL'
+  | 'DIVIDEND'
+  | 'REINVESTMENT'
+  | 'DEPOSIT'
+  | 'CONTRIBUTION'
+  | 'TRANSFER'
+  | 'OTHER'
+
+export interface Transaction {
+  date: string
+  accountName: string
+  accountNumber: string
+  type: TransactionType
+  symbol: string
+  description: string
+  price: number
+  quantity: number
+  amount: number
+  action: string
 }
 
 export type StockStatus = 'holding' | 'watching'
@@ -111,6 +136,7 @@ export interface HistoryPoint {
 export interface PortfolioSummary {
   totalValue: number
   totalCost: number
+  totalCashBalance: number
   totalGainDollar: number
   totalGainPercent: number
   todayGainDollar: number
