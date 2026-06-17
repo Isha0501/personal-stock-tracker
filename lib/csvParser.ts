@@ -25,6 +25,11 @@ function isCashRow(sym: string): boolean {
   return sym.toUpperCase().startsWith('SPAXX') || sym.toUpperCase().startsWith('FDRXX')
 }
 
+// Fidelity account numbers are short alphanumeric strings (e.g. "Z36475858", "257953984")
+function isValidAccountNumber(acct: string): boolean {
+  return acct.length > 0 && acct.length <= 20 && /^[A-Z0-9]+$/i.test(acct)
+}
+
 // ─── Positions CSV → Portfolio[] ────────────────────────────────────────────
 // Fidelity exports all accounts into one file. We auto-split by Account Number.
 export function parsePortfoliosCSV(content: string): Portfolio[] {
@@ -55,7 +60,7 @@ export function parsePortfoliosCSV(content: string): Portfolio[] {
     const accountName = (findCol(row, ['Account Name']) ?? '').trim()
     const rawSym = (findCol(row, ['Symbol']) ?? '').trim().replace(/\*+$/, '').toUpperCase()
 
-    if (!accountNum) continue
+    if (!isValidAccountNumber(accountNum)) continue
 
     if (!accountMap.has(accountNum)) {
       accountMap.set(accountNum, { name: accountName, cashBalance: 0, positions: [] })
